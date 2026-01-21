@@ -124,6 +124,7 @@ jobs:
         with:
           target: http://localhost:8080
           fail_action: false
+          allow_issue_writing: false
 
       # Upload des rapports OWASP ZAP
       - name: Upload OWASP ZAP reports
@@ -134,6 +135,7 @@ jobs:
            report_html.html
            report_json.json
            report_md.md
+
       # Arrêt de l’application (toujours)
       - name: Stop application
         if: always()
