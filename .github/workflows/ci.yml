@@ -1,0 +1,91 @@
+name: CI - API Tests & Security Scan
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+
+jobs:
+  api-tests:
+    name: API Tests (Hurl)
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ Récupération du code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2️⃣ Installation de Java
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # 3️⃣ Build de l’application
+      - name: Build application
+        run: mvn -q clean package
+
+      # 4️⃣ Démarrage de l’application
+      - name: Start application
+        run: |
+          nohup java -jar target/formation-cicd-test-tp-03-1.0-SNAPSHOT.jar > app.log 2>&1 &
+
+      # 5️⃣ Attente de disponibilité de l’API
+      - name: Wait for API to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -sSf http://localhost:8080/health > /dev/null; then
+              echo "API is up!"
+              exit 0
+            fi
+            echo "Waiting API..."
+            sleep 2
+          done
+          echo "API not ready"
+          tail -n 200 app.log || true
+          exit 1
+
+      # 6️⃣ Préparation du dossier de rapports
+      - name: Prepare API test reports directory
+        run: mkdir -p api-test-reports
+
+      # 7️⃣ Exécution des tests API avec Hurl (Docker)
+      - name: Run API tests (Hurl via Docker)
+        run: |
+          docker run --rm \
+            --add-host=host.docker.internal:host-gateway \
+            -v ${{ github.workspace }}:/work \
+            ghcr.io/orange-opensource/hurl:latest \
+            --test /work/src/test/java/api \
+            --report-junit /work/api-test-reports/junit.xml \
+            --report-html /work/api-test-reports/report.html \
+            --report-json /work/api-test-reports/report.json
+
+      # 8️⃣ Upload des rapports de tests API
+      - name: Upload API test reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-reports
+          path: api-test-reports
+
+      # 9️⃣ Arrêt de l’application (toujours exécuté)
+      - name: Stop application
+        if: always()
+        run: |
+          pkill -f "formation-cicd-test-tp-03" || true
+          echo "Application stopped"
+          tail -n 200 app.log || true
+
+  security-scan:
+    name: Security Scan (OWASP ZAP)
+    runs-on: ubuntu-latest
+    needs: api-tests
+
+    steps:
+      # 🔐 Scan de sécurité automatique
+      - name: OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.10.0
+        with:
+          target: http://localhost:8080
+          fail_action: false
